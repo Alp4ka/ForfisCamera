@@ -3,12 +3,75 @@ from collections import deque
 import numpy as np
 import argparse
 import imutils
+import msvcrt
 import cv2 as cv2
 import queue
 from time import sleep
 from tkinter import *
 from threading import Thread
 from PIL import Image, ImageTk
+import bgr_hsv_converter
+import os
+
+
+class ImageCarousel:
+    def __init__(self):
+        self.images = list()
+        self.iterator = 0;
+        self.read_images()
+
+    def read_images(self):
+        self.images = list()
+        for file in os.listdir(PATH):
+            if file.endswith(".jpg"):
+                try:
+                    self.images.append(os.path.join(PATH, file))
+                    print("{0} succesfully loaded!".format(os.path.join(PATH, file)))
+                except:
+                    print("Can't load {0}".format(os.path.join(PATH, file)))
+        self.size = len(self.images)
+        if self.size == 0:
+            self.iterator = None
+        else:
+            self.iterator = 0
+
+    def next(self):
+        if self.iterator != None:
+            self.iterator = (self.iterator + 1)%self.size
+        return self.iterator
+
+    def get_current(self):
+        if self.iterator == None:
+            return None
+        return self.images[self.iterator]
+
+
+PATH = u".\\imgs"
+COLORS = {"RED": (255, 0, 0),
+          "GREEN": (0, 255, 0),
+          "BLUE": (0, 0, 255),
+          "YELLOW": (255, 255, 0),
+          "LIGHT_BLUE": (0, 255, 255),
+          "MAGENTA": (255, 0, 255),
+          "LIGHT_GREEN": (95, 46, 110)}
+
+
+def markers_color_dialog():
+    print("Choose button color: \n{0}".format('\n'.join(COLORS.keys())))
+    ans = None
+    while not ans in COLORS.keys():
+        if ans is not None:
+            print("Wrong value")
+        ans = input()
+    btn_lower_bound, btn_upper_bound = bgr_hsv_converter.get_bounds(COLORS[ans])
+    print("Choose image color: \n{0}".format('\n'.join(COLORS.keys())))
+    ans = None
+    while not ans in COLORS.keys():
+        if ans is not None:
+            print("Wrong value")
+        ans = input()
+    img_lower_bound, img_upper_bound = bgr_hsv_converter.get_bounds(COLORS[ans])
+    return {"button": [btn_lower_bound, btn_upper_bound], "image": [img_lower_bound, img_upper_bound]}
 
 
 class CameraCore(Thread):
@@ -21,22 +84,13 @@ class CameraCore(Thread):
         self.image_pointer_location = None
         self.stop = False
         self.border = None
+        mrkrs_color_bounds = markers_color_dialog()
+        self.colorLower_button = mrkrs_color_bounds["button"][0]  # СИНИЙ
+        self.colorUpper_button = mrkrs_color_bounds["button"][1]
+        self.colorLower_image = mrkrs_color_bounds["image"][0] # ЖЁЛТЫЙ
+        self.colorUpper_image = mrkrs_color_bounds["image"][1]
 
-    def run(self):
-        # Задаём значения цвета отслеживаемых точек
-        # Определять через скрипт bgr_hsv_converter.py
-        colorLower_button = (91, 100, 100)  # СИНИЙ
-        colorUpper_button = (111, 255, 255)
-        colorLower_image = (15, 100, 100) # ЖЁЛТЫЙ
-        colorUpper_image = (35, 255, 255)
-        BUTTON_PRESSED = False
-        CHANGE_IMAGE = False
-        # Цвет точки в цнтре объекта
-        image_circe_color = (0, 0, 255)  # КРАСНЫЙ
-        # Подлючаем камеру, стандартно 0
-        camera = cv2.VideoCapture(self.camera_number)
-        radius_button = 0
-        radius_image = 0
+    def find_borders(self):
         ################################
         #### БЛОК ОПРЕДЕЛЕНИЯ РАМОК ####
         ####         НАЧАЛО         ####
@@ -44,10 +98,10 @@ class CameraCore(Thread):
         bordLower_image = (0, 40, 40)  # ЖЁЛТЫЙ
         bordUpper_image = (123, 123, 123)
         # Читаем с камеры
-        (grabbed, frame) = camera.read()
+        (grabbed, frame) = self.camera.read()
         sleep(2)  # Ждём 2 секунды, иногда первое изображение с камеры выходит плохое
         # Читаем второй раз кадр
-        (grabbed, frame) = camera.read()
+        (grabbed, frame) = self.camera.read()
         # Устанавливаем размер изображения
         frame = imutils.resize(frame, width=self.window_width)
         # Конверт в RGB
@@ -81,13 +135,8 @@ class CameraCore(Thread):
             # Заводим координаты для прямоугольника
             up_left_dot = {'x': BlockTwoX, 'y': BlockTwoY}
             down_right_dot = {'x': BlockOneX, 'y': BlockOneY}
-            down_left_dot = {'x': None, 'y': None}
-            up_right_dot = {'x': None, 'y': None}
-            # Задаём вершины прямоугольника
-            down_left_dot['x'] = up_left_dot['x']
-            down_left_dot['y'] = down_right_dot['y']
-            up_right_dot['x'] = down_right_dot['x']
-            up_right_dot['y'] = up_left_dot['y']
+            down_left_dot = {'x': up_left_dot['x'], 'y': down_right_dot['y']}
+            up_right_dot = {'x': down_right_dot['x'], 'y': up_left_dot['y']}
             # Выводим вершины (для проверки)
             print(up_left_dot)
             print(up_right_dot)
@@ -109,14 +158,41 @@ class CameraCore(Thread):
             # Рамка не найдена
             border_detected = False
             self.border = False
+            min_x = 0
+            max_x = 0
+            min_y = 0
+            max_y = 0
+            up_left_dot = {'x': None, 'y': None}
+            down_right_dot = {'x': None, 'y': None}
+            down_left_dot = {'x': None, 'y': None}
+            up_right_dot = {'x': None, 'y': None}
+        finally:
+            return min_x, max_x, min_y, max_y,up_left_dot, down_right_dot, down_left_dot, up_right_dot, border_detected
         ################################
         #### БЛОК ОПРЕДЕЛЕНИЯ РАМОК ####
         ####         КОНЕЦ          ####
         ################################
+
+    def run(self):
+        global radius_image
+        # Задаём значения цвета отслеживаемых точек
+        # Определять через скрипт bgr_hsv_converter.py
+        BUTTON_PRESSED = False
+        CHANGE_IMAGE = False
+        # Цвет точки в цнтре объекта
+        image_circe_color = (0, 0, 255)  # КРАСНЫЙ
+        # Подлючаем камеру, стандартно 0
+        self.camera = cv2.VideoCapture(self.camera_number)
+        radius_button = 0
+        radius_image = 0
+
+        # Ищем края.
+        min_x, max_x, min_y, max_y,up_left_dot, down_right_dot, down_left_dot, up_right_dot, border_detected = self.find_borders()
+
         # Цикл работы с камерой
         while True:
             # Получаем текущий кадр
-            (grabbed, frame) = camera.read()
+            (grabbed, frame) = self.camera.read()
             # Конвертируем в RGB палитру
             img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             # Примемяем размытие для избавления от шумов
@@ -140,7 +216,12 @@ class CameraCore(Thread):
             frame = imutils.resize(frame, width=self.window_width)
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             # Находим маркер кнопки по цвету
-            mask_button = cv2.inRange(hsv, colorLower_button, colorUpper_button)
+            self.colorLower_button = np.asarray(self.colorLower_button, dtype="int32")
+            self.colorUpper_button = np.asarray(self.colorUpper_button, dtype="int32")
+            self.colorLower_image = np.asarray(self.colorLower_image, dtype="int32")
+            self.colorUpper_image = np.asarray(self.colorUpper_image, dtype="int32")
+
+            mask_button = cv2.inRange(hsv, self.colorLower_button, self.colorUpper_button)
             mask_button = cv2.erode(mask_button, None, iterations=2)
             mask_button = cv2.dilate(mask_button, None, iterations=2)
             # находим контуры маркера
@@ -148,7 +229,7 @@ class CameraCore(Thread):
                                            cv2.CHAIN_APPROX_SIMPLE)[-2]
             center_button = None
             # Находим маркер изображения по цвету
-            mask_image = cv2.inRange(hsv, colorLower_image, colorUpper_image)
+            mask_image = cv2.inRange(hsv, self.colorLower_image, self.colorUpper_image)
             mask_image = cv2.erode(mask_image, None, iterations=2)
             mask_image = cv2.dilate(mask_image, None, iterations=2)
             # находим контуры маркера
@@ -226,8 +307,8 @@ class CameraCore(Thread):
             if self.stop == True:
                 break
         # Отключаем камеру и закрываем окна камеры
-        camera.release()
-        cv2.destroyAllWindows()
+        #self.camera.release()
+        #cv2.destroyAllWindows()
 
     # Возврващаем границы
     def get_border(self):
@@ -239,24 +320,29 @@ class CameraCore(Thread):
 
 
 if __name__ == "__main__":
+
     # Задаём очередь данных для работы с потоком
     qe = queue.Queue()
     # Создаём объект из класса камеры
     camera = CameraCore(queue=qe)
-    # Запускаем работу камеры
     camera.start()
+    # Запускаем работу камеры
     # Получаем границы
     border = camera.get_border()
-    while border == None:  # Если границы ещё не нашлись, то ждём секунду и пробуем снова
+    while border == None or border == False:  # Если границы ещё не нашлись, то ждём секунду и пробуем снова
         print('Wait for border')
         sleep(1)
+        camera.find_borders()
         border = camera.get_border()
     if border == False:  # Определить границы не удалось, рамку не установливаем
         print('border not detected')
         geometry = "800x600"
     else:  # А если нашлось, то задаём границы
         geometry = str(border['max_x'] - border['min_x']) + 'x' + str(border['max_y'] - border['min_y'])
+
+
     window = Tk()  # Создаём окно Tkinter
+    imgs = ImageCarousel()
     # Помещаем окно в центр монитора
     x = (window.winfo_screenwidth() - window.winfo_reqwidth()) / 2
     y = (window.winfo_screenheight() - window.winfo_reqheight()) / 2
@@ -267,43 +353,43 @@ if __name__ == "__main__":
     ## Первая картинка
     kianu_riwz = ImageTk.PhotoImage(Image.open("kianu_riwz.jpg").resize((90, 90), Image.ANTIALIAS))
     ## Вторая картинка
-    jouen_jonson = ImageTk.PhotoImage(Image.open("jouen_jonson.jpg").resize((90, 90), Image.ANTIALIAS))
+    '''jouen_jonson = ImageTk.PhotoImage(Image.open("jouen_jonson.jpg").resize((90, 90), Image.ANTIALIAS))'''
     ## Выбор картинки
     img_container = Label(window, image=kianu_riwz)
     img_container.image = kianu_riwz
-    now_is_image = 'kianu_riwz'
     # Находм координаты центра картинки
-    now_image_size = (kianu_riwz.width() / 2, kianu_riwz.height() / 2)
+    now_image_size = (kianu_riwz.width(), kianu_riwz.height())
     # Помещаем картинку в угол
     img_container.place(x=0, y=0)
-
 
     # Функция изменения положения картинки
     def coordinates():
         # Берём глобальные координаты
         global now_image_size
-        global now_is_image
         global img_container
+        global imgs
+        global radius_image
         # Забираем значения из потока через очередь
         camera_thread_data = qe.get()
         image_pointer_location = camera_thread_data[0]  # Текущие координаты картинки
         button_pressed = camera_thread_data[1]  # Нужно ли менять картинку
-        if button_pressed:  # Производим замену картинки
-            print(now_is_image)
-            if now_is_image == 'kianu_riwz':
-                img_container.configure(image=jouen_jonson)
-                img_container.image = jouen_jonson
-                now_is_image = 'jouen_jonson'
-                now_image_size = (jouen_jonson.width() / 2, jouen_jonson.height() / 2)
-            else:
-                img_container.configure(image=kianu_riwz)
-                img_container.image = kianu_riwz
-                now_is_image = 'kianu_riwz'
-                now_image_size = (kianu_riwz.width() / 2, kianu_riwz.height() / 2)
+        new_width = max(2, int(radius_image*2))
+        if button_pressed:
+            imgs.next()  # Сменить картинку в карусели.
+            temp_img = ImageTk.PhotoImage(Image.open(imgs.get_current()).resize((new_width, new_width), Image.ANTIALIAS))  # Получить текущую картинку.
+            img_container.configure(image=temp_img)  # Конфигурируем картинку.
+            img_container.image = temp_img  # Выставляем картинку.
+            now_image_size = (new_width , new_width) # Выставляем корректный размер картинки.
             window.update()  # Обновляем окно
         if image_pointer_location != None:  # Если маркер изображения найден, то в Tkinter выводим изображение в соответвующем месте
-            img_container.place(x=image_pointer_location[0] - now_image_size[0],
-                                y=image_pointer_location[1] - now_image_size[1])
+            im = Image.open(imgs.get_current()).resize((new_width, new_width), Image.ANTIALIAS)
+            temp_img = ImageTk.PhotoImage(im)
+            img_container.configure(image=temp_img)
+            img_container.image = temp_img
+            now_image_size = (new_width, new_width )
+            img_container.place(x=image_pointer_location[0] - now_image_size[0]/2,
+                                y=image_pointer_location[1] - now_image_size[1]/2)
+
             window.update()
         window.after(1, coordinates)  # Снова запускаем функцию coordinates
 
@@ -311,3 +397,5 @@ if __name__ == "__main__":
     coordinates()  # Выполняем coordinates
     window.mainloop()  # Запускаем работу окна с картинкой
     camera.close()  # Закрываем камеру. Происходит после закрытия окна с картинкой
+
+
