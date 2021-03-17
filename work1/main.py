@@ -11,6 +11,7 @@ from tkinter import *
 from threading import Thread
 from PIL import Image, ImageTk
 import bgr_hsv_converter
+import mean
 import os
 
 
@@ -41,12 +42,14 @@ class ImageCarousel:
         return self.iterator
 
     def get_current(self):
-        if self.iterator == None:
+        if self.iterator is None:
             return None
         return self.images[self.iterator]
 
 
 PATH = u".\\imgs"
+BTN_PATH = u".\\button_colors"
+PRJ_PATH = u".\\projector_colors"
 COLORS = {"RED": (255, 0, 0),
           "GREEN": (0, 255, 0),
           "BLUE": (0, 0, 255),
@@ -54,24 +57,31 @@ COLORS = {"RED": (255, 0, 0),
           "LIGHT_BLUE": (0, 255, 255),
           "MAGENTA": (255, 0, 255),
           "LIGHT_GREEN": (95, 46, 110)}
+EXIT = False
 
 
 def markers_color_dialog():
-    print("Choose button color: \n{0}".format('\n'.join(COLORS.keys())))
+    print("Please be sure " + PRJ_PATH + " and " + BTN_PATH + " are not empty.\n"
+          "Y - to continue, N - to close application:")
     ans = None
-    while not ans in COLORS.keys():
-        if ans is not None:
-            print("Wrong value")
+    global EXIT
+    while not ans in ["Y", "y", "N", "n"]:
         ans = input()
-    btn_lower_bound, btn_upper_bound = bgr_hsv_converter.get_bounds(COLORS[ans])
-    print("Choose image color: \n{0}".format('\n'.join(COLORS.keys())))
-    ans = None
-    while not ans in COLORS.keys():
         if ans is not None:
-            print("Wrong value")
-        ans = input()
-    img_lower_bound, img_upper_bound = bgr_hsv_converter.get_bounds(COLORS[ans])
-    return {"button": [btn_lower_bound, btn_upper_bound], "image": [img_lower_bound, img_upper_bound]}
+            if str.lower(ans) == "n":
+                EXIT = True
+                print("Closing program")
+                return None, None
+            elif str.lower(ans) == "y":
+                button_mean = mean.read_mean_values(BTN_PATH)
+                image_mean = mean.read_mean_values(PRJ_PATH)
+                if button_mean is None or image_mean is None:
+                    print("No images found. Check " + BTN_PATH + " or " + PRJ_PATH + "!")
+                    ans = None
+                    continue
+                else:
+                    return button_mean, image_mean
+    return None, None
 
 
 class CameraCore(Thread):
@@ -84,11 +94,12 @@ class CameraCore(Thread):
         self.image_pointer_location = None
         self.stop = False
         self.border = None
-        mrkrs_color_bounds = markers_color_dialog()
-        self.colorLower_button = mrkrs_color_bounds["button"][0]  # СИНИЙ
-        self.colorUpper_button = mrkrs_color_bounds["button"][1]
-        self.colorLower_image = mrkrs_color_bounds["image"][0] # ЖЁЛТЫЙ
-        self.colorUpper_image = mrkrs_color_bounds["image"][1]
+
+        button_color_bounds, image_color_bounds = markers_color_dialog()
+        self.colorLower_button = button_color_bounds[0]
+        self.colorUpper_button = button_color_bounds[1]
+        self.colorLower_image = image_color_bounds[0]
+        self.colorUpper_image = image_color_bounds[1]
 
     def find_borders(self):
         ################################
@@ -215,6 +226,21 @@ class CameraCore(Thread):
             # Конвертируем изображение в HSV формат
             frame = imutils.resize(frame, width=self.window_width)
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+            cv2.imshow("Frame", frame)
+            cv2.waitKey(1)
+            # button_color_bounds, image_color_bounds = markers_color_dialog()
+            if EXIT:
+                self.close()
+                sleep(2)
+                if self.stop:
+                    break
+
+            # self.colorLower_button = button_color_bounds[0]
+            # self.colorUpper_button = button_color_bounds[1]
+            # self.colorLower_image = image_color_bounds[0]
+            # self.colorUpper_image = image_color_bounds[1]
+
             # Находим маркер кнопки по цвету
             self.colorLower_button = np.asarray(self.colorLower_button, dtype="int32")
             self.colorUpper_button = np.asarray(self.colorUpper_button, dtype="int32")
@@ -222,7 +248,7 @@ class CameraCore(Thread):
             self.colorUpper_image = np.asarray(self.colorUpper_image, dtype="int32")
 
             mask_button = cv2.inRange(hsv, self.colorLower_button, self.colorUpper_button)
-            mask_button = cv2.erode(mask_button, None, iterations=2)
+            mask_button = cv2.erode(mask_button, None, iterations=1)
             mask_button = cv2.dilate(mask_button, None, iterations=2)
             # находим контуры маркера
             cnts_button = cv2.findContours(mask_button.copy(), cv2.RETR_EXTERNAL,
@@ -247,12 +273,11 @@ class CameraCore(Thread):
                 # Проверяем радиус
                 if radius_button > 10:
                     # Если радиус подходит, то рисуем круг вокруг объекта
-                    cv2.circle(frame, (int(x), int(y)), int(radius_button),
-                               (0, 255, 255), 2)
+                    # cv2.circle(frame, (int(x), int(y)), int(radius_button), (0, 255, 255), 2)
                     cv2.circle(frame, center, 5, (0, 0, 255), -1)
             CHANGE_IMAGE = False
             # Если радиус кнопки маленький (кнопка перекрыта чем-то)
-            if radius_button < 20:
+            if radius_button < 20 and len(cnts_button) > 0:
                 if BUTTON_PRESSED == False:
                     BUTTON_PRESSED = True
                     CHANGE_IMAGE = True
@@ -304,11 +329,12 @@ class CameraCore(Thread):
             cv2.waitKey(1)
 
             # Останока работы камеры
-            if self.stop == True:
+            if self.stop:
                 break
         # Отключаем камеру и закрываем окна камеры
-        #self.camera.release()
-        #cv2.destroyAllWindows()
+        self.camera.release()
+        cv2.destroyAllWindows()
+        return
 
     # Возврващаем границы
     def get_border(self):
@@ -323,6 +349,10 @@ if __name__ == "__main__":
 
     # Задаём очередь данных для работы с потоком
     qe = queue.Queue()
+
+    # Подгружаем изображения в очередь.
+    imgs = ImageCarousel()
+
     # Создаём объект из класса камеры
     camera = CameraCore(queue=qe)
     camera.start()
@@ -342,23 +372,20 @@ if __name__ == "__main__":
 
 
     window = Tk()  # Создаём окно Tkinter
-    imgs = ImageCarousel()
     # Помещаем окно в центр монитора
     x = (window.winfo_screenwidth() - window.winfo_reqwidth()) / 2
     y = (window.winfo_screenheight() - window.winfo_reqheight()) / 2
     window.wm_geometry("+%d+%d" % (x, y))
     # window.attributes("-fullscreen", True) # Если полный экран надо
     window.geometry(geometry)  # Задаём размер окна
-    window.title("Proektor")  # Заголовок окна
+    window.title("Emulation")  # Заголовок окна
     ## Первая картинка
-    kianu_riwz = ImageTk.PhotoImage(Image.open("kianu_riwz.jpg").resize((90, 90), Image.ANTIALIAS))
-    ## Вторая картинка
-    '''jouen_jonson = ImageTk.PhotoImage(Image.open("jouen_jonson.jpg").resize((90, 90), Image.ANTIALIAS))'''
+    default_img = ImageTk.PhotoImage(Image.open("default.jpg").resize((90, 90), Image.ANTIALIAS))
     ## Выбор картинки
-    img_container = Label(window, image=kianu_riwz)
-    img_container.image = kianu_riwz
+    img_container = Label(window, image=default_img)
+    img_container.image = default_img
     # Находм координаты центра картинки
-    now_image_size = (kianu_riwz.width(), kianu_riwz.height())
+    now_image_size = (default_img.width(), default_img.height())
     # Помещаем картинку в угол
     img_container.place(x=0, y=0)
 
@@ -381,7 +408,8 @@ if __name__ == "__main__":
             img_container.image = temp_img  # Выставляем картинку.
             now_image_size = (new_width , new_width) # Выставляем корректный размер картинки.
             window.update()  # Обновляем окно
-        if image_pointer_location != None:  # Если маркер изображения найден, то в Tkinter выводим изображение в соответвующем месте
+
+        if image_pointer_location is not None:  # Если маркер изображения найден, то в Tkinter выводим изображение в соответвующем месте
             im = Image.open(imgs.get_current()).resize((new_width, new_width), Image.ANTIALIAS)
             temp_img = ImageTk.PhotoImage(im)
             img_container.configure(image=temp_img)
@@ -397,5 +425,7 @@ if __name__ == "__main__":
     coordinates()  # Выполняем coordinates
     window.mainloop()  # Запускаем работу окна с картинкой
     camera.close()  # Закрываем камеру. Происходит после закрытия окна с картинкой
+
+
 
 

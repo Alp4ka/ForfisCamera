@@ -9,5 +9,8 @@ def get_bounds(color):
     blue = color[2]
     color = np.uint8([[[blue, green, red]]])
     hsv_color = cv2.cvtColor(color, cv2.COLOR_BGR2HSV)
-    hue = hsv_color[0][0][0]
-    return (hue-15, 100, 100), (hue+15, 255, 255)
+    hue = hsv_color[0][0]
+    #print("govno:"+str(hue))
+    upper = (hue[0] + 10, hue[1] + 10, hue[2] + 40)
+    lower = (hue[0] - 10, hue[1] - 10, hue[2] - 40)
+    return lower, upper
