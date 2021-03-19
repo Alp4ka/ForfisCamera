@@ -17,7 +17,6 @@ class ImageCarousel:
         self.images = list()
         self.iterator = 0
         self.read_images()
-        self.size = None
 
     def read_images(self):
         self.images = list()
