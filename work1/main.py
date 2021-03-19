@@ -233,17 +233,11 @@ class CameraCore(Thread):
 
             cv2.imshow("Frame", frame)
             cv2.waitKey(1)
-            # button_color_bounds, image_color_bounds = markers_color_dialog()
             if EXIT:
                 self.close()
                 sleep(2)
                 if self.stop:
                     break
-
-            # self.colorLower_button = button_color_bounds[0]
-            # self.colorUpper_button = button_color_bounds[1]
-            # self.colorLower_image = image_color_bounds[0]
-            # self.colorUpper_image = image_color_bounds[1]
 
             # Находим маркер кнопки по цвету
             self.colorLower_button = np.asarray(self.colorLower_button, dtype="int32")
