@@ -359,15 +359,16 @@ if __name__ == "__main__":
     camera = CameraCore(queue=qe)  # Создаём объект из класса камеры.
     camera.start()  # Запускаем работу камеры.
     border = camera.get_border()  # Получаем границы.
-    while border == None or border == False:  # Если границы ещё не нашлись, то ждём секунду и пробуем снова
+    while border is None or not border:  # Если границы ещё не нашлись, то ждём секунду и пробуем снова
         print('Wait for border')
         sleep(1)
         camera.find_borders()
         border = camera.get_border()
-    if border == False:  # Определить границы не удалось, рамку не установливаем
+    if not border:  # Определить границы не удалось, рамку не установливаем
         print('border not detected')
         geometry = "800x600"
     else:  # А если нашлось, то задаём границы
+        print("Borders found!")
         geometry = str(border['max_x'] - border['min_x']) + 'x' + str(border['max_y'] - border['min_y'])
 
     window = Tk()  # Создаём окно Tkinter
